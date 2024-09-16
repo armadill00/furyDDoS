@@ -20,6 +20,9 @@ Send GET requests to http://example.com with 200 threads and verbose output:
 
 python attack.py http://example.com -m GET -t 200 -v
 
+![Exemple on very limited internet](https://ibb.co/1L1YTL7)
+
+
 ## Methods:
 * GET
 * POST
