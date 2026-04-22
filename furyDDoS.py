@@ -4,7 +4,6 @@ import signal
 import string
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from multiprocessing.dummy import Pool as ThreadPool
@@ -60,55 +59,6 @@ def choose_method(configured_method: str, get_ratio: int) -> str:
     return "GET" if random.randint(1, 100) <= get_ratio else "POST"
 
 
-def build_requests_proxy(proxy_url: str | None) -> dict[str, str] | None:
-    if not proxy_url:
-        return None
-    return {"http": proxy_url, "https": proxy_url}
-
-
-def load_proxy_file(path: str) -> list[str]:
-    proxies: list[str] = []
-    with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            proxy = line.strip()
-            if not proxy or proxy.startswith("#"):
-                continue
-            proxies.append(proxy)
-    return proxies
-
-
-def validate_proxies(
-    proxies: list[str],
-    check_url: str,
-    timeout: float,
-    workers: int = 20,
-) -> list[str]:
-    if not proxies:
-        return []
-
-    def _check(proxy_url: str) -> str | None:
-        try:
-            response = requests.get(
-                check_url,
-                timeout=timeout,
-                proxies=build_requests_proxy(proxy_url),
-            )
-            if response.ok:
-                return proxy_url
-        except requests.RequestException:
-            return None
-        return None
-
-    alive: list[str] = []
-    with ThreadPoolExecutor(max_workers=min(workers, len(proxies))) as executor:
-        futures = [executor.submit(_check, proxy) for proxy in proxies]
-        for future in as_completed(futures):
-            proxy = future.result()
-            if proxy:
-                alive.append(proxy)
-    return alive
-
-
 def send_request(
     session: requests.Session,
     url: str,
@@ -116,7 +66,6 @@ def send_request(
     timeout: float,
     payload_min_bytes: int,
     payload_max_bytes: int,
-    proxy_url: str | None,
     verbose: bool,
     stats: Stats,
     lock: threading.Lock,
@@ -124,12 +73,11 @@ def send_request(
     start_time = time.time()
 
     try:
-        proxy_cfg = build_requests_proxy(proxy_url)
         if request_method == "GET":
-            response = session.get(url, timeout=timeout, proxies=proxy_cfg)
+            response = session.get(url, timeout=timeout)
         else:
             data = random_payload(payload_min_bytes, payload_max_bytes)
-            response = session.post(url, data=data, timeout=timeout, proxies=proxy_cfg)
+            response = session.post(url, data=data, timeout=timeout)
 
         latency_ms = (time.time() - start_time) * 1000
         packet_size = len(response.content)
@@ -168,7 +116,6 @@ def run_load_test(
     get_ratio: int = 70,
     payload_min_bytes: int = 32,
     payload_max_bytes: int = 512,
-    proxy_pool: list[str] | None = None,
     verbose: bool = False,
 ) -> Stats:
     stop_event = threading.Event()
@@ -221,9 +168,6 @@ def run_load_test(
                 last_schedule = time.time()
 
             request_method = choose_method(method, get_ratio)
-            proxy_url = None
-            if proxy_pool:
-                proxy_url = proxy_pool[stats.scheduled % len(proxy_pool)]
 
             with lock:
                 stats.scheduled += 1
@@ -239,7 +183,6 @@ def run_load_test(
                     timeout,
                     payload_min_bytes,
                     payload_max_bytes,
-                    proxy_url,
                     verbose,
                     stats,
                     lock,
@@ -352,29 +295,6 @@ if __name__ == "__main__":
         help="Ramp from 0 to target rate over this many seconds (requires --rate).",
     )
     parser.add_argument(
-        "--proxy-mode",
-        choices=["direct", "static"],
-        default="direct",
-        help="Use direct requests or rotate from a user-provided static proxy list.",
-    )
-    parser.add_argument(
-        "--proxy-file",
-        type=str,
-        default=None,
-        help="Path to newline-delimited proxy URLs (e.g., http://ip:port, socks5://ip:port).",
-    )
-    parser.add_argument(
-        "--proxy-check-url",
-        type=str,
-        default=None,
-        help="Optional URL used for proxy health checks (default: target URL).",
-    )
-    parser.add_argument(
-        "--skip-proxy-check",
-        action="store_true",
-        help="Skip validating proxies before the test.",
-    )
-    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -393,28 +313,6 @@ if __name__ == "__main__":
         parser.error("--ramp-seconds cannot be negative.")
     if args.ramp_seconds > 0 and not args.rate:
         parser.error("--ramp-seconds requires --rate.")
-    if args.proxy_mode == "static" and not args.proxy_file:
-        parser.error("--proxy-mode static requires --proxy-file.")
-
-    proxy_pool: list[str] | None = None
-    if args.proxy_mode == "static":
-        file_proxies = load_proxy_file(args.proxy_file)
-        if not file_proxies:
-            parser.error("No proxies found in --proxy-file.")
-
-        if args.skip_proxy_check:
-            proxy_pool = file_proxies
-        else:
-            proxy_pool = validate_proxies(
-                file_proxies,
-                check_url=args.proxy_check_url or args.target,
-                timeout=args.timeout,
-                workers=min(50, args.threads * 2),
-            )
-            if not proxy_pool:
-                parser.error("No live proxies remained after health checks.")
-
-        print(f"Proxy mode enabled: {len(proxy_pool)} live proxies in pool")
 
     print(
         f"Starting authorized load test: {args.target} | profile={args.method} | "
@@ -433,7 +331,6 @@ if __name__ == "__main__":
         get_ratio=args.get_ratio,
         payload_min_bytes=args.payload_min_bytes,
         payload_max_bytes=args.payload_max_bytes,
-        proxy_pool=proxy_pool,
         verbose=args.verbose,
     )
     print_summary(final_stats, args.duration, args.rate)
