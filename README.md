@@ -1,38 +1,53 @@
-A Python script designed for sending high volumes of Layer 7 (HTTP) requests to a server using concurrent threads. Ideal for stress testing or benchmarking web applications, with support for detailed verbose output.
+# furyDDoS (Authorized HTTP Load Tester)
+
+A Python script for **authorized** Layer 7 (HTTP) stress testing and benchmarking of web services.
 
 ## Features
-* High-Concurrency Requests: Uses a thread pool for sending multiple HTTP requests simultaneously.
-* Flexible HTTP Methods: Supports GET and POST requests.
-* Verbose Output: Provides detailed information including timestamps, HTTP method, response packet size, and ping response time.
-* Command-Line Interface: Configurable via command-line arguments for target URL, HTTP method, number of threads, and verbosity.
+- Concurrent requests using a configurable thread pool.
+- Traffic profiles: `GET`, `POST`, or realistic `MIX` mode.
+- Configurable mixed traffic ratio (`--get-ratio`) in MIX mode.
+- Configurable POST payload ranges (`--payload-min-bytes`, `--payload-max-bytes`).
+- Input validation for target URL and HTTP method.
+- Bounded execution with `--duration` and optional `--max-requests`.
+- Optional global request-rate cap with `--rate` and linear ramp-up with `--ramp-seconds`.
+- Per-request timeout support.
+- Verbose logs plus final summary metrics:
+  - scheduled/completed/success/failed requests
+  - error rate
+  - average latency + p50/p95/p99 latency
+  - throughput + configured-rate saturation
+  - max in-flight request depth
 
-## Usage:
-Run the script from the command line with the desired options:
+## Usage
+```bash
+python furyDDoS.py <target-url> [options]
+```
 
-python attack.py <target-url> [-m METHOD] [-t THREADS] [-v]
-* <target-url>: URL to send requests to (e.g., http://example.com).
-* -m METHOD: HTTP method to use (GET or POST). Default is GET.
-* -t THREADS: Number of concurrent threads. Default is 100.
-* -v: Enable verbose output for detailed logging.
+### Arguments
+- `<target-url>`: URL to benchmark (must include `http://` or `https://`).
+- `-m, --method`: HTTP profile (`GET`, `POST`, or `MIX`). Default: `GET`.
+- `--get-ratio`: In `MIX` mode, percent of GET traffic (`0-100`). Default: `70`.
+- `--payload-min-bytes`: Minimum POST payload size in bytes. Default: `32`.
+- `--payload-max-bytes`: Maximum POST payload size in bytes. Default: `512`.
+- `-t, --threads`: Number of worker threads. Default: `20`.
+- `--timeout`: Per-request timeout in seconds. Default: `5.0`.
+- `--duration`: Test duration in seconds. Default: `30`.
+- `--max-requests`: Optional cap on scheduled requests.
+- `--rate`: Optional global target request rate (requests/sec).
+- `--ramp-seconds`: Ramp from 0 to `--rate` over N seconds.
+- `-v, --verbose`: Enable detailed per-request logs.
 
-### Example Commands
-Send GET requests to http://example.com with 200 threads and verbose output:
+### Examples
+```bash
+# Realistic mixed profile with rate ramp-up
+python furyDDoS.py https://example.com --method MIX --get-ratio 80 --rate 300 --ramp-seconds 20 --duration 60
 
-python attack.py http://example.com -m GET -t 200 -v
+# POST-focused payload benchmark
+python furyDDoS.py https://example.com/api --method POST --payload-min-bytes 1024 --payload-max-bytes 8192 --threads 40 --duration 30
+```
 
-![Exemple on very limited internet](https://i.ibb.co/9N6mWNc/Screenshot-2.png)
-
-
-## Methods:
-* GET
-* POST
-
-## Disclaimer
-This tool is intended for educational purposes and stress testing only. Do not use it to attack or disrupt services without proper authorization. Unauthorized use of this tool may be illegal and unethical.
+## Important notice
+Use this tool only against systems you own or are explicitly authorized to test.
 
 ## License
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-# Contributions
-Feel free to open issues or submit pull requests. Contributions are welcome!
-
+MIT
